@@ -1,0 +1,1 @@
+pub type FloatPrecision = f64;
