@@ -1,75 +1,55 @@
 use std::iter::FlatMap;
+use std::process::exit;
+use std::ptr::null;
 
+use crate::activations;
 use crate::activations::mwrap;
 use crate::activations::Activation;
+
 use crate::constants::FloatPrecision;
-use crate::layers::FlattenLayer;
+
 use crate::layers::Layer;
-use crate::layers::DenseLayer;
-use crate::math::add;
-use crate::math::dot;
-use crate::math::Matrix;
-use crate::math::scale;
-use crate::math::sub;
 
-pub struct NeuralNetwork {
-    input_layer:FlattenLayer,
-    layers:Vec<DenseLayer>,
-    input_size: usize,
-    output_size: usize,
-    layer_count: usize,
+use crate::math::mulm;
+use crate::math::naive_mulm;
+use crate::math::subm;
+use crate::math::tmulm;
+use crate::math::DMatrix;
+
+pub struct NeuralNetwork2 {
+    layer0: Layer,
+    layer1: Layer,
+    pub error: DMatrix,
+    delta: DMatrix,
+    fdnet: DMatrix,
 }
 
-impl NeuralNetwork {
-    pub fn new() -> Self {
+impl NeuralNetwork2 {
+    pub fn new(layer0: Layer, layer1: Layer, output_size: usize) -> Self {
         Self {
-            input_layer: FlattenLayer::new(),
-            layers: Vec::new(),
-            input_size: 0,
-            output_size: 0,
-            layer_count: 0
+            layer0,
+            layer1,
+            error: DMatrix::new(vec![0.; output_size], (output_size, 1)),
+            delta: DMatrix::new(vec![0.; output_size], (output_size, 1)),
+            fdnet: DMatrix::new(vec![0.; output_size], (output_size, 1)),
         }
     }
-    /// Forward pass to predict an output given inputs
-    pub fn predict(&self, input: Matrix) -> Matrix {
-        let mut out = input;
-        for i in 0..self.layer_count {
-            out = self.layers[i].predict(out);
-        }
-        out
+
+    pub fn predict(&mut self, input: &DMatrix) -> &DMatrix {
+        self.layer0.forward(input);
+        self.layer1.forward(&self.layer0.out);
+        &self.layer1.out
     }
 
-    // Train the network on a single sample
-    pub fn train(&mut self, input: Matrix, target: Matrix) {
-        let mut nets_and_outs = Vec::new();
-        let mut out = input.clone();
-        for i in 0..self.layer_count {
-            let sum = dot(self.layers[i].weights.clone(), out);
-            let net = add(sum, self.layers[i].bias.clone());
-            out = mwrap(self.layers[i].activation.f, net.clone());
-            nets_and_outs.push((net, out.clone()));
-        }
+    pub fn train(&mut self, input: &DMatrix, label: &DMatrix) {
+        self.layer0.forward(input);
+        self.layer1.forward(&self.layer0.out);
 
-        let mut delta = sub(target, out);
-        //let mut delta = scale(2. / (out.shape.0 as FloatPrecision), abserror); // initially MSE
-        
-        for i in (1..self.layer_count).rev() {
-            let (net, out) = &nets_and_outs[i];
-            let (dw, db) = self.layers[i].backprop((*net).clone(), &delta);
-            delta = db.clone();
-            self.layers[i].weights = add(self.layers[i].weights.clone(), dw); 
-            self.layers[i].bias = add(self.layers[i].weights.clone(), db); 
-        }
+        subm(label, &self.layer1.out, &mut self.error); // dE
 
-        let (dw, db) = self.layers[0].backprop(input, &delta);
-        self.layers[0].weights = add(self.layers[0].weights.clone(), dw);
-        self.layers[0].bias = add(self.layers[0].bias.clone(), db);
+        self.layer1.backward(&self.layer0.out, &self.error);
 
-    }
-
-    pub fn add_dense_layer(&mut self, input_size: usize, output_size: usize, activation: Activation, rate: FloatPrecision) {
-        self.layers.push(DenseLayer::new(input_size, output_size, activation, rate));
-        self.layer_count += 1;
+        tmulm(&self.layer1.weights, &self.layer1.delta, &mut self.layer0.delta);
+        self.layer0.backward(&input, &self.delta);
     }
 }
-
