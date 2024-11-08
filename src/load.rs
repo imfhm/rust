@@ -4,8 +4,12 @@
 use log::info;
 use std::convert::TryFrom;
 use std::fs;
-use std::io;
+use std::fs::File;
+use std::io::{self, BufRead, Write};
 use std::io::Read;
+use std::path::Path;
+
+use crate::constants::FloatPrecision;
 
 // Filenames
 const TRAIN_DATA_FILENAME: &str = "train-images-idx3-ubyte";
@@ -21,6 +25,11 @@ const NUM_TEST_IMAGES: usize = 10_000;
 const IMAGE_ROWS: usize = 28;
 const IMAGE_COLUMNS: usize = 28;
 
+pub fn loading(i: usize, n: usize, perc: usize) {
+    let output = "|".repeat(i * perc / (n));
+    print!("\r{}", output);
+    io::stdout().flush().unwrap();
+}
 pub struct Mnist {
     // Arrays of images.
     pub train_data: Vec<[u8; IMAGE_ROWS * IMAGE_COLUMNS]>,
@@ -278,4 +287,23 @@ fn parse_labels(filename: &str) -> io::Result<(usize, usize, Vec<u8>)> {
         labels.push(label_buffer[0]);
     }
     Ok((magic_number, num_labels, labels))
+}
+
+pub fn read_floats(path: &str) -> io::Result<Vec<FloatPrecision>> {
+    let path = Path::new(path);
+    let file = File::open(&path)?;
+    let reader = io::BufReader::new(file);
+
+    let mut floats = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+
+        match line.trim().parse::<f64>(){
+            Ok(num) => floats.push(num),
+            Err(_) => {
+                panic!("Could not parse line as f64: {}", line);
+            }
+        }
+    }
+    Ok(floats)
 }
